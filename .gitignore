@@ -1,0 +1,5 @@
+.idea
+*.o
+*.elf
+*.hex
+util/process_midi_file
