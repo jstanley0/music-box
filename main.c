@@ -138,7 +138,7 @@ ISR(TIM0_OVF_vect)
 }
 
 // song progress; fired every 10ms
-ISR(TIM1_COMPA_vect, ISR_NOBLOCK)
+ISR(TIM1_COMPA_vect)
 {
   static uint16_t song_pos = 0;
   static uint8_t wait_cycles = 1;
