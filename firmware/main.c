@@ -141,7 +141,7 @@ ISR(TIM0_OVF_vect)
 ISR(TIM1_COMPA_vect)
 {
   static uint16_t song_pos = 0;
-  static uint8_t wait_cycles = 1;
+  static uint8_t wait_cycles = 50;
   static uint8_t decay_cycles = 0;
 
   if (++decay_cycles == 5) {
