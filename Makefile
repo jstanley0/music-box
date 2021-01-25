@@ -1,5 +1,5 @@
 DEVICE     = attiny84
-CLOCK      = 1000000
+CLOCK      = 2000000
 PROGRAMMER = -c usbtiny
 OBJECTS    = main.o songs.o
 FUSES      = -U lfuse:w:0x22:m -U hfuse:w:0xdf:m -U efuse:w:0xff:m

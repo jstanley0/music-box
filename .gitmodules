@@ -1,0 +1,3 @@
+[submodule "process_midi_file/light-midi-parser"]
+	path = process_midi_file/light-midi-parser
+	url = https://github.com/imhcyx/light-midi-parser.git
