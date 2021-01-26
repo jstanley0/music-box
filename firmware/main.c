@@ -17,6 +17,9 @@
 
 #include "songs.h"
 
+// hi-hat, ride cymbal, etc. don't play at full volume
+#define ATTENUATED_PERCUSSION_LEVEL 8
+
 void init_clock()
 {
   // change clock divider from /8 to /4 so we run at 2MHz,
@@ -74,11 +77,11 @@ void note(uint8_t note)
   send_attenuation(v, 0);
 }
 
-void noise(uint8_t n)
+void noise(uint8_t n, uint8_t initial_attenuation)
 {
-  playing_atten[3] = 0;
+  playing_atten[3] = initial_attenuation;
   send_noise(n);
-  send_attenuation(3, 0);
+  send_attenuation(3, initial_attenuation);
 }
 
 void decay()
@@ -131,6 +134,8 @@ ISR(TIM1_COMPA_vect, ISR_NOBLOCK)
   static uint16_t song_pos = 0;
   static uint8_t wait_cycles = 50;
   static uint8_t decay_cycles = 0;
+  static uint8_t noise_cycles = 0;
+  static int8_t noise_target = 0;
 
   update_blinkenlight();
 
@@ -138,7 +143,10 @@ ISR(TIM1_COMPA_vect, ISR_NOBLOCK)
     decay_cycles = 0;
     decay();
   }
-  decay_noise();
+  if (++noise_cycles == noise_target) {
+    noise_cycles = 0;
+    decay_noise();
+  }
 
   if (wait_cycles > 0) {
     --wait_cycles;
@@ -148,6 +156,7 @@ ISR(TIM1_COMPA_vect, ISR_NOBLOCK)
   // keep executing song commands until we hit a delay or end of song
   for(;;) {
     uint8_t song_cmd = pgm_read_byte(&song_data[song_pos]);
+    uint8_t noise_atten;
     switch(song_cmd & 0xC0) {
     case 0: // note
       note(song_cmd);
@@ -157,7 +166,12 @@ ISR(TIM1_COMPA_vect, ISR_NOBLOCK)
       ++song_pos;
       return;
     case 0x80: // noise
-      noise(song_cmd & 0x3F);
+      //  7  6  5  4  3  2  1  0
+      //  1  0 A0 S1 S0 N2 N1 N0
+      noise_target = 1 + ((song_cmd & 0x18) >> 3);
+      noise_atten = (song_cmd & 0x20);
+      noise_cycles = 0;
+      noise(song_cmd & 0x07, noise_atten ? ATTENUATED_PERCUSSION_LEVEL : 0);
       break;
     case 0xC0: // end song
       song_pos = 0;

@@ -17,6 +17,10 @@ const int HIGHEST_NOTE = LOWEST_NOTE + 63; // D7
 
 const int POLYPHONY = 3;
 
+// noise types
+const int HIGH_PERIODIC = 0, MID_PERIODIC = 1, LOW_PERIODIC = 2,
+          HIGH_WHITE = 4, MID_WHITE = 5, LOW_WHITE = 6;
+
 struct Event {
   int delay;
   std::set<int> notes;
@@ -74,20 +78,33 @@ class Encoder {
     return false;
   }
 
+  // noise (N == noise type, A = attenuated; S = sustain cycles - 1)
+  //  7  6  5  4  3  2  1  0
+  //  1  0 A0 S1 S0 N2 N1 N0
+  int noise_code(int noise_type, int sustain_add = 0, bool attenuated = false) {
+    return (sustain_add << 3) | noise_type;
+  }
+
   int map_noise(const std::set<int> &perc) {
     // since we can only hear one noise at a time, these are prioritized
-    if (percussion_hit(perc, 0, 37, 38, 39, 40, 49, 52, 55, 57 -1))
-      return 4; // snare-ish
+    if (percussion_hit(perc, 0, 49, 57, -1))
+      return noise_code(HIGH_WHITE, 3, true); // crash cymbal
+    if (percussion_hit(perc, 0, 51, 59, -1))
+      return noise_code(MID_WHITE, 2, true); // ride cymbal
+    if (percussion_hit(perc, 0, 37, 38, 39, 40, 52, 55, -1))
+      return noise_code(HIGH_WHITE); // snare-ish
     else if (percussion_hit(perc, 0, 35, 36, 41, 45, -1))
-      return 6; // bass drum-ish
+      return noise_code(LOW_WHITE); // bass drum-ish
     else if (percussion_hit(perc, 0, 47, 61, 64, 66, 68, 77, -1))
-      return 2; // low tom, etc.
+      return noise_code(LOW_PERIODIC); // low tom, etc.
     else if (percussion_hit(perc, 0, 48, 60, 62, 63, 65, 67, 76, -1))
-      return 1; // mid tom, etc.
-    if (percussion_hit(perc, 0, 50, 56, 58, 71, 72, 80, 81, -1))
-      return 0; // hi tom, etc.
-    else if (percussion_hit(perc, 0, 42, 44, 46, 51, 53, 54, 55, 59, 70, -1))
-      return 5; // misc (hi-hat, etc.)
+      return noise_code(MID_PERIODIC); // mid tom, etc.
+    if (percussion_hit(perc, 0, 50, 56, 71, 72, 80, 81, -1))
+      return noise_code(HIGH_PERIODIC); // hi tom, etc.
+    else if (percussion_hit(perc, 0, 46, 53, 54, 55, 58, 70, -1))
+      return noise_code(HIGH_WHITE, 2, true); // open hi-hat, misc
+    else if (percussion_hit(perc, 0, 42, 44, -1))
+      return noise_code(MID_WHITE, 0, true); // closed hi-hat
     return -1;
   }
 
