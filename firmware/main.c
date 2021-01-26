@@ -47,13 +47,17 @@ void send_frequency(uint8_t voice, uint16_t freq)
   send_byte(freq >> 4);
 }
 
+void send_noise(uint8_t n)
+{
+  send_byte(0xE0U | n);
+}
+
 void send_attenuation(uint8_t voice, uint8_t atten)
 {
   send_byte(0x90U | (voice << 5) | atten);
 }
 
-
-uint8_t playing_atten[3] = { 15, 15, 15 };
+uint8_t playing_atten[4] = { 15, 15, 15, 15 };
 
 void note(uint8_t note)
 {
@@ -70,16 +74,34 @@ void note(uint8_t note)
   send_attenuation(v, 0);
 }
 
-// handle note envelope
-// and piggyback blinkenlight intensity while we're at it
+void noise(uint8_t n)
+{
+  playing_atten[3] = 0;
+  send_noise(n);
+  send_attenuation(3, 0);
+}
+
 void decay()
 {
-  uint8_t blinkenlight = 0;
   for(uint8_t i = 0; i < 3; ++i) {
-    blinkenlight += (64 >> playing_atten[i]);
     if (playing_atten[i] < 15) {
       send_attenuation(i, ++playing_atten[i]);
     }
+  }
+}
+
+void decay_noise()
+{
+  if (playing_atten[3] < 15) {
+    send_attenuation(3, ++playing_atten[3]);
+  }
+}
+
+void update_blinkenlight()
+{
+  uint8_t blinkenlight = 0;
+  for(uint8_t i = 0; i < 4; ++i) {
+    blinkenlight += (63 >> playing_atten[i]);
   }
   OCR0A = blinkenlight;
 }
@@ -109,10 +131,13 @@ ISR(TIM1_COMPA_vect)
   static uint8_t wait_cycles = 50;
   static uint8_t decay_cycles = 0;
 
+  update_blinkenlight();
+
   if (++decay_cycles == 5) {
     decay_cycles = 0;
     decay();
   }
+  decay_noise();
 
   if (wait_cycles > 0) {
     --wait_cycles;
@@ -130,7 +155,9 @@ ISR(TIM1_COMPA_vect)
       wait_cycles = song_cmd & 0x3F;
       ++song_pos;
       return;
-      // TODO noise (0x80)
+    case 0x80: // noise
+      noise(song_cmd & 0x3F);
+      break;
     case 0xC0: // end song
       song_pos = 0;
       wait_cycles = 200;

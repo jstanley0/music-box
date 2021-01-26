@@ -5,6 +5,7 @@
 #include <string.h>
 #include <vector>
 #include <set>
+#include <cstdarg>
 extern "C" {
 #include "midi.h"
 }
@@ -19,6 +20,7 @@ const int POLYPHONY = 3;
 struct Event {
   int delay;
   std::set<int> notes;
+  std::set<int> noise;
 
   explicit Event(int _delay = 0) : delay(_delay) {}
 };
@@ -48,6 +50,10 @@ class Encoder {
     write1(note);
   }
 
+  void write_noise(int noise) {
+    write1(0x80 | noise);
+  }
+
   void write_delay(int cs) {
     while(cs > 63) {
       write1(0x7F);
@@ -55,6 +61,29 @@ class Encoder {
     }
     if (cs > 0)
       write1(0x40 | cs);
+  }
+
+  bool percussion_hit(const std::set<int> &perc, int dummy ...) {
+    va_list args;
+    va_start(args, dummy);
+    int i = 0;
+    while((i = va_arg(args, int)) > 0) {
+      if (perc.end() != perc.find(i))
+        return true;
+    }
+    return false;
+  }
+
+  int map_noise(const std::set<int> &perc) {
+    if (percussion_hit(perc, 0, 49, 52, 57, -1))
+      return 0; // cymbal-ish
+    else if (percussion_hit(perc, 0, 38, 39, 40, -1))
+      return 4; // snare-ish
+    else if (percussion_hit(perc, 0, 35, 36, 41, 45, -1))
+      return 6; // bass drum-ish
+    else if (percussion_hit(perc, 0, 42, 44, 46, 47, 48, 51, 54, 55, 58, -1))
+      return 5; // misc (hi-hat, etc.)
+    return -1;
   }
 
   void write_note_table() {
@@ -73,6 +102,11 @@ class Encoder {
         write_delay(evt.delay);
       for(auto note : evt.notes)
         write_note(note);
+      if (!evt.noise.empty()) {
+        int noise = map_noise(evt.noise);
+        if (noise >= 0)
+          write_noise(noise);
+      }
     }
     os << "0xff};\n";
   }
@@ -111,13 +145,15 @@ public:
   void log_note(int channel, int note, int velocity) {
     if (velocity == 0)
       return; // some MIDI files use note-on events with velocity 0 as note-off events
-    if (channel == 9)
-      return; // TODO: map percussion events to the noise channel
 
     ensure_event();
-    if (note < min_note) min_note = note;
-    if (note > max_note) max_note = note;
-    song_data.back().notes.insert(note);
+    if (channel == 9) {
+      song_data.back().noise.insert(note);
+    } else {
+      if (note < min_note) min_note = note;
+      if (note > max_note) max_note = note;
+      song_data.back().notes.insert(note);
+    }
   }
 
   void write_song() {
