@@ -48,14 +48,13 @@ class Encoder {
     write1(note);
   }
 
-  void write_delay(int ms) {
-    ms /= 10;
-    while(ms > 63) {
+  void write_delay(int cs) {
+    while(cs > 63) {
       write1(0x7F);
-      ms -= 63;
+      cs -= 63;
     }
-    if (ms > 0)
-      write1(0x40 | ms);
+    if (cs > 0)
+      write1(0x40 | cs);
   }
 
   void write_note_table() {
@@ -100,9 +99,9 @@ public:
   Encoder(std::ostream &s = std::cout) : os(s), min_note(128), max_note(0) {
   }
 
-  void log_delay(int ms) {
+  void log_delay(int cs) {
     process_last_event();
-    song_data.emplace_back(ms);
+    song_data.emplace_back(cs);
   }
 
   void log_note(int channel, int note, int velocity) {
@@ -147,18 +146,20 @@ int main(int argc, char* argv[]) {
   }
 
   midi_combine_tracks(trks);
-  midi_convert_deltatime(trks);
+  midi_convert_abstime(trks);
 
   midi_hdr hdr;
   midi_get_header(midi, &hdr);
 
   int tempo = 500000;
+  int last_timestamp = 0;
 
   Encoder encoder;
   for(midi_evt_node *node = trks->trk[0]; node != NULL; node = node->next) {
-    if (node->time > 0) {
-      int us = (node->time * tempo) / hdr.division;
-      encoder.log_delay(us / 1000);
+    int timestamp = ((int64_t)node->time * tempo) / hdr.division / 10000;  // ms to hundredths
+    if (timestamp > last_timestamp) {
+      encoder.log_delay(timestamp - last_timestamp);
+      last_timestamp = timestamp;
     }
     switch(node->evt) {
     case midi_meta_evt:
