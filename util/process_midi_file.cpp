@@ -49,12 +49,13 @@ class Encoder {
   }
 
   void write_delay(int ms) {
-    ms = ((ms + 5) / 10);
+    ms /= 10;
     while(ms > 63) {
-      write1(0x40 | ms);
+      write1(0x7F);
       ms -= 63;
     }
-    write1(0x40 | ms);
+    if (ms > 0)
+      write1(0x40 | ms);
   }
 
   void write_note_table() {
