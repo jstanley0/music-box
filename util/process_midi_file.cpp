@@ -100,8 +100,12 @@ public:
   }
 
   void log_delay(int cs) {
-    process_last_event();
-    song_data.emplace_back(cs);
+    if (!song_data.empty() && song_data.back().notes.empty()) {
+      song_data.back().delay += cs;
+    } else {
+      process_last_event();
+      song_data.emplace_back(cs);
+    }
   }
 
   void log_note(int channel, int note, int velocity) {
