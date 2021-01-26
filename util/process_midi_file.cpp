@@ -75,13 +75,18 @@ class Encoder {
   }
 
   int map_noise(const std::set<int> &perc) {
-    if (percussion_hit(perc, 0, 49, 52, 57, -1))
-      return 0; // cymbal-ish
-    else if (percussion_hit(perc, 0, 38, 39, 40, -1))
+    // since we can only hear one noise at a time, these are prioritized
+    if (percussion_hit(perc, 0, 37, 38, 39, 40, 49, 52, 55, 57 -1))
       return 4; // snare-ish
     else if (percussion_hit(perc, 0, 35, 36, 41, 45, -1))
       return 6; // bass drum-ish
-    else if (percussion_hit(perc, 0, 42, 44, 46, 47, 48, 51, 54, 55, 58, -1))
+    else if (percussion_hit(perc, 0, 47, 61, 64, 66, 68, 77, -1))
+      return 2; // low tom, etc.
+    else if (percussion_hit(perc, 0, 48, 60, 62, 63, 65, 67, 76, -1))
+      return 1; // mid tom, etc.
+    if (percussion_hit(perc, 0, 50, 56, 58, 71, 72, 80, 81, -1))
+      return 0; // hi tom, etc.
+    else if (percussion_hit(perc, 0, 42, 44, 46, 51, 53, 54, 55, 59, 70, -1))
       return 5; // misc (hi-hat, etc.)
     return -1;
   }
