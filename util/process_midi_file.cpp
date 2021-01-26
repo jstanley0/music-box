@@ -128,9 +128,7 @@ public:
   }
 
   void log_delay(int ms) {
-    //dump_last_event("before");
     process_last_event();
-    //dump_last_event("after");
     song_data.emplace_back(ms);
   }
 
