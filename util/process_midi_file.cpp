@@ -14,17 +14,17 @@ const double AVR_CLOCK = 2000000.0;
 const int LOWEST_NOTE = 35; // B1
 const int HIGHEST_NOTE = LOWEST_NOTE + 63; // D7
 
+const int POLYPHONY = 3;
+
 struct Event {
   int delay;
-  std::set<int> notes_off;
-  std::set<int> notes_on;
+  std::set<int> notes;
 
   explicit Event(int _delay = 0) : delay(_delay) {}
 };
 
 class Encoder {
   std::vector<Event> song_data;
-  std::set<int> notes_playing;
 
   std::ostream &os;
   int min_note, max_note;
@@ -43,7 +43,7 @@ class Encoder {
     return note - LOWEST_NOTE;
   }
 
-  void write_note_on(int note) {
+  void write_note(int note) {
     note = process_note(note);
     write1(note);
   }
@@ -55,11 +55,6 @@ class Encoder {
       ms -= 63;
     }
     write1(0x40 | ms);
-  }
-
-  void write_note_off(int note) {
-    note = process_note(note);
-    write1(0x80 | note);
   }
 
   void write_note_table() {
@@ -74,12 +69,10 @@ class Encoder {
     process_last_event();
     os << "const uint8_t song_data[] PROGMEM = {";
     for(auto&& evt : song_data) {
-      write_delay(evt.delay);
-      for(auto note : evt.notes_off)
-        write_note_off(note);
-      // for notes on, prioritize higher notes
-      for(auto ni = evt.notes_on.rbegin(); ni != evt.notes_on.rend(); ++ni)
-        write_note_on(*ni);
+      if (evt.delay > 0)
+        write_delay(evt.delay);
+      for(auto note : evt.notes)
+        write_note(note);
     }
     os << "0xff};\n";
   }
@@ -95,31 +88,10 @@ class Encoder {
       return;
     auto &event = song_data.back();
 
-    // process note-off events
-    for(auto ni = event.notes_off.begin(); ni != event.notes_off.end();) {
-      auto pi = notes_playing.find(*ni);
-      if (pi != notes_playing.end()) {
-        notes_playing.erase(pi);
-        ++ni;
-      } else {
-        // this note was previously dropped, so remove the now spurious note-off event
-        ni = event.notes_off.erase(ni);
-      }
-    }
-
-    // if no notes are being added in this event, we're done
-    if (event.notes_on.empty())
-      return;
-
-    // if there are too many notes to actually turn on right now,
-    // cull some of them (TODO: try to also be smart about notes that are already playing)
-    while(event.notes_on.size() > 3) {
-      event.notes_on.erase(std::next(event.notes_on.begin()));
-    }
-
-    // insert the new notes into the playing set
-    for(int note : event.notes_on) {
-      notes_playing.insert(note);
+    // if there are too many notes to strike at once, cull some of them
+    // leaving the highest and lowest notes alone
+    while(event.notes.size() > POLYPHONY) {
+      event.notes.erase(std::next(event.notes.begin()));
     }
   }
 
@@ -132,23 +104,16 @@ public:
     song_data.emplace_back(ms);
   }
 
-  void log_note_off(int channel, int note, int velocity) {
-    ensure_event();
-    song_data.back().notes_off.insert(note);
-  }
-
-  void log_note_on(int channel, int note, int velocity) {
+  void log_note(int channel, int note, int velocity) {
+    if (velocity == 0)
+      return; // some MIDI files use note-on events with velocity 0 as note-off events
     if (channel == 9)
       return; // TODO: map percussion events to the noise channel
-    if (velocity == 0) {
-      // some MIDI files use note-on events with velocity 0 as note-off events
-      log_note_off(channel, note, velocity);
-      return;
-    }
+
     ensure_event();
     if (note < min_note) min_note = note;
     if (note > max_note) max_note = note;
-    song_data.back().notes_on.insert(note);
+    song_data.back().notes.insert(note);
   }
 
   void write_song() {
@@ -200,11 +165,8 @@ int main(int argc, char* argv[]) {
         tempo = node->param1;
       }
       break;
-    case midi_noteoff:
-      encoder.log_note_off(node->chan, node->param1, node->param2);
-      break;
     case midi_noteon:
-      encoder.log_note_on(node->chan, node->param1, node->param2);
+      encoder.log_note(node->chan, node->param1, node->param2);
       break;
     }
   }

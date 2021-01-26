@@ -17,10 +17,6 @@
 
 #include "songs.h"
 
-// notes are hit at full volume (0) and decay to this point where they will sustain
-// until note-off, then fade out
-#define SUSTAIN_LEVEL 10
-
 void init_clock()
 {
   // change clock divider from /8 to /4 so we run at 2MHz,
@@ -56,65 +52,34 @@ void send_attenuation(uint8_t voice, uint8_t atten)
   send_byte(0x90U | (voice << 5) | atten);
 }
 
-// (not playing)
-#define NP 64
 
-uint8_t playing_notes[3] = { NP, NP, NP };
 uint8_t playing_atten[3] = { 15, 15, 15 };
 
-void note_on(uint8_t note)
+void note(uint8_t note)
 {
-  uint8_t i;
-
-  // see if this note is already playing, and re-use its voice
-  for(i = 0; i < 3; ++i) {
-    if (playing_notes[i] == note) {
-      break;
-    }
-  }
-
-  // otherwise find an available voice
-  if (i == 3) {
-    for(i = 0; i < 3; ++i) {
-      if (playing_notes[i] == NP)
-        break;
-    }
-  }
-
-  // if none, drop the note :(
-  // (this should not actually happen if the midi preprocessor did its job)
-  if (i == 3) {
-    return;
+  // pick the quietest voice
+  uint8_t v = 0;
+  for(uint8_t i = 1; i < 3; ++i) {
+    if (playing_atten[i] > playing_atten[v])
+      v = i;
   }
 
   // play the note!
-  playing_notes[i] = note;
-  playing_atten[i] = 0;
-  send_frequency(i, pgm_read_word(&note_table[note]));
-  send_attenuation(i, 0);
+  playing_atten[v] = 0;
+  send_frequency(v, pgm_read_word(&note_table[note]));
+  send_attenuation(v, 0);
 }
 
-void note_off(uint8_t note)
-{
-  for(uint8_t i = 0; i < 3; ++i) {
-    if (playing_notes[i] == note) {
-      playing_notes[i] = NP;
-      break;
-    }
-  }
-}
-
-// handle note envelope modulation
+// handle note envelope
 // and piggyback blinkenlight intensity while we're at it
 void decay()
 {
   uint8_t blinkenlight = 0;
   for(uint8_t i = 0; i < 3; ++i) {
-    uint8_t atten_target = (playing_notes[i] == NP) ? 15 : SUSTAIN_LEVEL;
-    if (playing_atten[i] < atten_target) {
+    blinkenlight += (64 >> playing_atten[i]);
+    if (playing_atten[i] < 15) {
       send_attenuation(i, ++playing_atten[i]);
     }
-    blinkenlight += (64 >> playing_atten[i]);
   }
   OCR0A = blinkenlight;
 }
@@ -158,17 +123,15 @@ ISR(TIM1_COMPA_vect)
   for(;;) {
     uint8_t song_cmd = pgm_read_byte(&song_data[song_pos]);
     switch(song_cmd & 0xC0) {
-    case 0: // note on
-      note_on(song_cmd);
-      break;
-    case 0x80: // note off
-      note_off(song_cmd & 0x3F);
+    case 0: // note
+      note(song_cmd);
       break;
     case 0x40: // delay
       wait_cycles = song_cmd & 0x3F;
       ++song_pos;
       return;
-    case 0xC0: // end song (for now)
+      // TODO noise (0x80)
+    case 0xC0: // end song
       song_pos = 0;
       wait_cycles = 200;
       return;
