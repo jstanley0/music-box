@@ -26,6 +26,9 @@ all:	main.hex
 .c.s:
 	$(COMPILE) -S $< -o $@
 
+ispcheck:
+	$(AVRDUDE)
+
 flash:	all
 	$(AVRDUDE) -U flash:w:main.hex:i
 
