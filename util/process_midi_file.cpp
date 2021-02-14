@@ -111,7 +111,7 @@ class Encoder {
   void write_note_table() {
     os << "const uint16_t note_table[64] PROGMEM = {";
     for(int i = 0; i < 64; ++i) {
-      os << (int)(AVR_CLOCK / (32 * 440.0 * pow(2, ((i + LOWEST_NOTE) - 69.0) / 12))) << ",";
+      os << (int)round(AVR_CLOCK / (32 * 440.0 * pow(2, ((i + LOWEST_NOTE) - 69.0) / 12))) << ",";
     }
     os << "};\n";
   }
