@@ -1,5 +1,5 @@
-.idea
+hardware/fp-info-cache
+hardware/*-bak
 *.o
-*.elf
-*.hex
-util/process_midi_file
+.idea
+hardware/gerber
