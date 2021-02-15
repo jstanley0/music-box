@@ -82,7 +82,7 @@ class Encoder {
   //  7  6  5  4  3  2  1  0
   //  1  0 A0 S1 S0 N2 N1 N0
   int noise_code(int noise_type, int sustain_add = 0, bool attenuated = false) {
-    return (sustain_add << 3) | noise_type;
+    return (sustain_add << 3) | noise_type | (attenuated ? 0x20 : 0);
   }
 
   int map_noise(const std::set<int> &perc) {
