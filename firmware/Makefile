@@ -1,4 +1,4 @@
-DEVICE     = attiny84
+DEVICE     = attiny861
 CLOCK      = 2000000
 PROGRAMMER = -c usbtiny
 OBJECTS    = main.o songs.o

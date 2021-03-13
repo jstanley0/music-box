@@ -3,11 +3,12 @@
 
 // port assignments (AVR -> TI SN76489):
 // PA0..PA7 -> D7..D0
-// PB1 -> /WE
-// PB2 -> CLOCK (via CKOUT fuse)
+// PB4 -> /WE
+// PB5 -> CLOCK (via CKOUT fuse)
 
 // other pin assignments:
-// PB0 -> blinkenlight
+// PB0..3 -> blinkenlights
+// PB6 -> tac switch
 
 #include <avr/io.h>
 #include <avr/pgmspace.h>
@@ -32,16 +33,16 @@ void init_clock()
 void init_io()
 {
   DDRA  = 0xff;
-  DDRB  = (1 << DDB0) | (1 << DDB1);
-  PORTB = (1 << PORTB1);
+  DDRB  = 0b00111111;
+  PORTB = (1 << PORTB6) | (1 << PORTB4);
 }
 
 void send_byte(uint8_t byte)
 {
   PORTA = byte;
-  PORTB &= ~(1 << PORTB1);
+  PORTB &= ~(1 << PORTB4);
   _delay_us(16);  // 32 clock cycles at 2MHz
-  PORTB |= (1 << PORTB1);
+  PORTB |= (1 << PORTB4);
 }
 
 void send_frequency(uint8_t voice, uint16_t freq)
@@ -106,7 +107,7 @@ void update_blinkenlight()
   for(uint8_t i = 0; i < 4; ++i) {
     blinkenlight += (63 >> playing_atten[i]);
   }
-  OCR0A = blinkenlight;
+  OCR1A = blinkenlight;
 }
 
 void silence()
@@ -116,20 +117,20 @@ void silence()
 }
 
 // blinkenlight off
-ISR(TIM0_COMPA_vect)
+ISR(TIMER1_COMPA_vect)
 {
-  PORTB &= ~(1 << PORTB0);
+  PORTB &= 0xF0;
 }
 
 // blinkenlight on
-ISR(TIM0_OVF_vect)
+ISR(TIMER1_OVF_vect)
 {
-  PORTB |= (1 << PORTB0);
+  PORTB |= 0x0F;
 }
 
 // song progress; fired every 10ms
 // ISR_NOBLOCK avoids glitches in the blinkenlight PWM
-ISR(TIM1_COMPA_vect, ISR_NOBLOCK)
+ISR(TIMER0_COMPA_vect, ISR_NOBLOCK)
 {
   static uint16_t song_pos = 0;
   static uint8_t wait_cycles = 50;
@@ -184,16 +185,15 @@ ISR(TIM1_COMPA_vect, ISR_NOBLOCK)
 
 void init_interrupts()
 {
-  // blinkenlight: PWM on OCR0A
-  TCCR0A = (1 << WGM01) | (1 << WGM00);  // fast PWM mode
-  TCCR0B = (1 << CS01) | (1 << CS00);    // 2MHz / 256 / 64 = 122Hz, a perfectly cromulent refresh rate
-  TIMSK0 = (1 << OCIE0A) | (1 << TOIE0); // enable COMPA and OVF interrupts
+  // blinkenlights: PWM on timer1
+  TCCR1B = (1 << CS12) | (1 << CS11) | (1 << CS10); // 2MHz / 256 / 64 = 122Hz, a perfectly cromulent refresh rate
+  TIMSK = (1 << OCIE1A) | (1 << TOIE1); // enable COMPA and OVF interrupts
 
   // music progress: fire every 10ms
-  TCCR1A = 0;                            // normal mode
-  OCR1A = 2500;                          // 250kHz / 2500 = 100 Hz
-  TCCR1B = (1 << CS11) | (1 << WGM12);   // 1/8 prescaler, ticks at 250kHz; CTC on OCR1A
-  TIMSK1 = (1 << OCIE1A);                // enable COMPA vector
+  TCCR0A = (1 << CTC0);     // CTC mode
+  TCCR0B = (1 << CS02);     // 1/256 prescaler; timer ticks at ~7800 Hz
+  OCR0A = 78;               // reset at 7800/78 = 100 Hz
+  TIMSK |= (1 << OCIE0A);   // enable COMPA vector
 }
 
 int main(void)
