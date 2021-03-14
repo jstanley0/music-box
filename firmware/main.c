@@ -19,7 +19,7 @@
 #include "songs.h"
 
 // hi-hat, ride cymbal, etc. don't play at full volume
-#define ATTENUATED_PERCUSSION_LEVEL 8
+#define ATTENUATED_PERCUSSION_LEVEL 4
 
 void init_clock()
 {
@@ -180,7 +180,7 @@ void play_song()
   {
     sleep_one_tick();
 
-    if (++decay_cycles == 5) {
+    if (++decay_cycles == 6) {
       decay_cycles = 0;
       decay();
     }
