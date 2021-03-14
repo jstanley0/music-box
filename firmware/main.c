@@ -87,9 +87,11 @@ void noise(uint8_t n, uint8_t initial_attenuation)
 
 void decay()
 {
+  static volatile uint8_t *blinky_reg[3] = { &OCR0A, &OCR1A, &OCR1D };
   for(uint8_t i = 0; i < 3; ++i) {
     if (playing_atten[i] < 15) {
       send_attenuation(i, ++playing_atten[i]);
+      *blinky_reg[i] = 0xff >> playing_atten[i];
     }
   }
 }
@@ -98,15 +100,8 @@ void decay_noise()
 {
   if (playing_atten[3] < 15) {
     send_attenuation(3, ++playing_atten[3]);
+    OCR1B = 0xff >> playing_atten[3];
   }
-}
-
-void update_blinkenlights()
-{
-  OCR0A = 0xff >> playing_atten[0];
-  OCR1A = 0xff >> playing_atten[1];
-  OCR1D = 0xff >> playing_atten[2];
-  OCR1B = 0xff >> playing_atten[3];
 }
 
 void silence()
@@ -184,7 +179,6 @@ void play_song()
   while(PINB & (1 << PB6))
   {
     sleep_one_tick();
-    update_blinkenlights();
 
     if (++decay_cycles == 5) {
       decay_cycles = 0;
