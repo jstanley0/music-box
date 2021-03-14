@@ -16,6 +16,7 @@ const int LOWEST_NOTE = 35; // B1
 const int HIGHEST_NOTE = LOWEST_NOTE + 63; // D7
 
 const int POLYPHONY = 3;
+const int US_PER_TICK = (1000000.0 * 256 * 64) / AVR_CLOCK; // (8192 microseconds at 2MHz)
 
 // noise types
 const int HIGH_PERIODIC = 0, MID_PERIODIC = 1, LOW_PERIODIC = 2,
@@ -118,6 +119,7 @@ class Encoder {
 
   void write_song_data() {
     process_last_event();
+    song_data[0].delay = 0; // skip initial delay. in some songs, there's quite a bit of it
     os << "const uint8_t song_data[] PROGMEM = {";
     for(auto&& evt : song_data) {
       if (evt.delay > 0)
@@ -191,7 +193,7 @@ public:
 
 int main(int argc, char* argv[]) {
   if (argc != 2) {
-    std::cerr << "Usage: playmidi file.mid" << std::endl;
+    std::cerr << "Usage: process_midi_file file.mid" << std::endl;
     return 1;
   }
 
@@ -218,7 +220,8 @@ int main(int argc, char* argv[]) {
 
   Encoder encoder;
   for(midi_evt_node *node = trks->trk[0]; node != NULL; node = node->next) {
-    int timestamp = ((int64_t)node->time * tempo) / hdr.division / 10000;  // ms to hundredths
+    int64_t timestamp_us = ((int64_t)node->time * tempo) / hdr.division;
+    int timestamp = timestamp_us / US_PER_TICK;
     if (timestamp > last_timestamp) {
       encoder.log_delay(timestamp - last_timestamp);
       last_timestamp = timestamp;

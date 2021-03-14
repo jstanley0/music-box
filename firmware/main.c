@@ -101,13 +101,12 @@ void decay_noise()
   }
 }
 
-void update_blinkenlight()
+void update_blinkenlights()
 {
-  uint8_t blinkenlight = 0;
-  for(uint8_t i = 0; i < 4; ++i) {
-    blinkenlight += (63 >> playing_atten[i]);
-  }
-  OCR1A = blinkenlight;
+  OCR0A = 0xff >> playing_atten[0];
+  OCR1A = 0xff >> playing_atten[1];
+  OCR1D = 0xff >> playing_atten[2];
+  OCR1B = 0xff >> playing_atten[3];
 }
 
 void silence()
@@ -116,84 +115,116 @@ void silence()
     send_attenuation(i, 15);
 }
 
-// blinkenlight off
-ISR(TIMER1_COMPA_vect)
+// LED 3 off
+ISR(TIMER1_COMPD_vect)
 {
-  PORTB &= 0xF0;
+  PORTB &= 0b11111011;
 }
 
-// blinkenlight on
+// LED 3 on
 ISR(TIMER1_OVF_vect)
 {
-  PORTB |= 0x0F;
+  PORTB |= 0b00000100;
 }
 
-// song progress; fired every 10ms
-// ISR_NOBLOCK avoids glitches in the blinkenlight PWM
-ISR(TIMER0_COMPA_vect, ISR_NOBLOCK)
+// LED 1 off
+ISR(TIMER0_COMPA_vect)
 {
-  static uint16_t song_pos = 0;
-  static uint8_t wait_cycles = 50;
-  static uint8_t decay_cycles = 0;
-  static uint8_t noise_cycles = 0;
-  static int8_t noise_target = 0;
+  PORTB &= 0b11111110;
+}
 
-  update_blinkenlight();
+volatile uint8_t g_Tick = 0;
 
-  if (++decay_cycles == 5) {
-    decay_cycles = 0;
-    decay();
-  }
-  if (++noise_cycles == noise_target) {
-    noise_cycles = 0;
-    decay_noise();
-  }
+// LED 1 on, also, music heartbeat (@ 122 Hz)
+ISR(TIMER0_OVF_vect)
+{
+  PORTB |= 0b00000001;
+  g_Tick += 1;
+}
 
-  if (wait_cycles > 0) {
-    --wait_cycles;
-    return;
+void sleep_one_tick()
+{
+  while (g_Tick == 0) {
+    set_sleep_mode(SLEEP_MODE_IDLE);
+    sleep_enable();
+    sleep_cpu();
   }
-
-  // keep executing song commands until we hit a delay or end of song
-  for(;;) {
-    uint8_t song_cmd = pgm_read_byte(&song_data[song_pos]);
-    uint8_t noise_atten;
-    switch(song_cmd & 0xC0) {
-    case 0: // note
-      note(song_cmd);
-      break;
-    case 0x40: // delay
-      wait_cycles = song_cmd & 0x3F;
-      ++song_pos;
-      return;
-    case 0x80: // noise
-      //  7  6  5  4  3  2  1  0
-      //  1  0 A0 S1 S0 N2 N1 N0
-      noise_target = 1 + ((song_cmd & 0x18) >> 3);
-      noise_atten = (song_cmd & 0x20);
-      noise_cycles = 0;
-      noise(song_cmd & 0x07, noise_atten ? ATTENUATED_PERCUSSION_LEVEL : 0);
-      break;
-    case 0xC0: // end song
-      song_pos = 0;
-      wait_cycles = 200;
-      return;
-    }
-    ++song_pos;
-  }
+  g_Tick -= 1;
 }
 
 void init_interrupts()
 {
-  // blinkenlights: PWM on timer1
-  TCCR1B = (1 << CS12) | (1 << CS11) | (1 << CS10); // 2MHz / 256 / 64 = 122Hz, a perfectly cromulent refresh rate
-  TIMSK = (1 << OCIE1A) | (1 << TOIE1); // enable COMPA and OVF interrupts
+  // this is gonna be a bit hacky because THERE ARE FOUR LIGHTS.
 
-  // music progress: fire every 10ms
-  TCCR0A = (1 << CTC0);     // CTC mode
-  TCCR0B = (1 << CS02);     // 1/256 prescaler; timer ticks at ~7800 Hz
-  OCR0A = 78;               // reset at 7800/78 = 100 Hz
-  TIMSK |= (1 << OCIE0A);   // enable COMPA vector
+  // two of them (LEDs 2 and 4) are easy: they're on OC1A and OC1B pins, so we can use fast PWM mode
+  TCCR1A = (1 << COM1A1) | (1 << COM1B1) | (1 << PWM1A) | (1 << PWM1B);
+
+  // we can't use the third PWM channel (because its pin is shared with CLKO)
+  // so we'll do software PWM for LED 3 with the compare-match D and overflow interrupts
+  TIMSK = (1 << OCIE1D) | (1 << TOIE1);
+
+  // set prescaler 1/64: 2MHz / 256 / 64 = 122Hz, a perfectly cromulent refresh rate
+  TCCR1B = (1 << CS12) | (1 << CS11) | (1 << CS10);
+
+  // and let's do software PWM with timer 0 too
+  TCCR0A = 0;                            // normal mode, 8-bit
+  TCCR0B = (1 << CS01) | (1 << CS00);    // 1/64 prescaler
+  TIMSK |= (1 << OCIE0A) | (1 << TOIE0); // enable COMPA and overflow vectors
+}
+
+void play_song()
+{
+  uint16_t song_pos = 0;
+  uint8_t wait_cycles = 50;
+  uint8_t decay_cycles = 0;
+  uint8_t noise_cycles = 0;
+  int8_t noise_target = 0;
+
+  // stop playing if the button is pressed
+  while(PINB & (1 << PB6))
+  {
+    sleep_one_tick();
+    update_blinkenlights();
+
+    if (++decay_cycles == 5) {
+      decay_cycles = 0;
+      decay();
+    }
+    if (++noise_cycles == noise_target) {
+      noise_cycles = 0;
+      decay_noise();
+    }
+
+    if (wait_cycles > 0) {
+      --wait_cycles;
+      continue;
+    }
+
+    // keep executing song commands until we hit a delay or end of song
+    while(wait_cycles == 0) {
+      uint8_t song_cmd = pgm_read_byte(&song_data[song_pos]);
+      uint8_t noise_atten;
+      switch(song_cmd & 0xC0) {
+      case 0: // note
+        note(song_cmd);
+        break;
+      case 0x40: // delay
+        wait_cycles = song_cmd & 0x3F;
+        break;
+      case 0x80: // noise
+        //  7  6  5  4  3  2  1  0
+        //  1  0 A0 S1 S0 N2 N1 N0
+        noise_target = 1 + ((song_cmd & 0x18) >> 3);
+        noise_atten = (song_cmd & 0x20);
+        noise_cycles = 0;
+        noise(song_cmd & 0x07, noise_atten ? ATTENUATED_PERCUSSION_LEVEL : 0);
+        break;
+      case 0xC0: // end song
+        return;
+      }
+      ++song_pos;
+    }
+  }
 }
 
 int main(void)
@@ -204,12 +235,13 @@ int main(void)
   init_interrupts();
   sei();
 
-  // main loop is empty; everything is interrupt-driven
-  for(;;){
-    set_sleep_mode(SLEEP_MODE_IDLE);
-    sleep_enable();
-    sleep_cpu();
-  }
-  return 0;   // never reached
+  play_song();
 
+  silence();
+  TCCR1B = 0;
+  TCCR0B = 0;
+  PORTB &= 0xF0;
+  set_sleep_mode(SLEEP_MODE_PWR_DOWN);
+  sleep_enable();
+  sleep_cpu();
 }
