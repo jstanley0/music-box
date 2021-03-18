@@ -61,8 +61,15 @@ void send_attenuation(uint8_t voice, uint8_t atten)
   send_byte(0x90U | (voice << 5) | atten);
 }
 
-static const uint8_t fade_table[16] PROGMEM = {255, 179, 125, 88, 61, 43, 30, 21, 15, 10, 7, 5, 4, 2, 1, 0};
+static const uint8_t fade_table[16] PROGMEM = {254, 179, 125, 88, 61, 43, 30, 21, 15, 10, 7, 5, 4, 2, 1, 0};
 uint8_t playing_atten[4] = { 15, 15, 15, 15 };
+
+volatile uint8_t OCR0A_buf = 0, OCR0B_buf = 0;
+void set_led(uint8_t voice, uint8_t atten)
+{
+    static volatile uint8_t *intensity_reg[4] = { &OCR0A_buf, &OCR1A, &OCR0B_buf, &OCR1B };
+    *intensity_reg[voice] = pgm_read_byte(&fade_table[playing_atten[voice]]);
+}
 
 void note(uint8_t note)
 {
@@ -77,6 +84,7 @@ void note(uint8_t note)
   playing_atten[v] = 0;
   send_frequency(v, pgm_read_word(&note_table[note]));
   send_attenuation(v, 0);
+  set_led(v, 0);
 }
 
 void noise(uint8_t n, uint8_t initial_attenuation)
@@ -84,22 +92,16 @@ void noise(uint8_t n, uint8_t initial_attenuation)
   playing_atten[3] = initial_attenuation;
   send_noise(n);
   send_attenuation(3, initial_attenuation);
+  set_led(3, 0);
 }
 
-volatile uint8_t OCR0A_buf = 0, OCR0B_buf = 0;
 void decay()
 {
-  if (playing_atten[0] < 15) {
-    send_attenuation(0, ++playing_atten[0]);
-    OCR0A_buf = pgm_read_byte(&fade_table[playing_atten[0]]);
-  }
-  if (playing_atten[1] < 15) {
-    send_attenuation(1, ++playing_atten[1]);
-    OCR1A = pgm_read_byte(&fade_table[playing_atten[1]]);
-  }
-  if (playing_atten[2] < 15) {
-    send_attenuation(2, ++playing_atten[2]);
-    OCR0B_buf = pgm_read_byte(&fade_table[playing_atten[2]]);
+  for(uint8_t i = 0; i < 3; ++i) {
+    if (playing_atten[i] < 15) {
+      send_attenuation(i, ++playing_atten[i]);
+      set_led(i, playing_atten[i]);
+    }
   }
 }
 
@@ -107,7 +109,7 @@ void decay_noise()
 {
   if (playing_atten[3] < 15) {
     send_attenuation(3, ++playing_atten[3]);
-    OCR1B = pgm_read_byte(&fade_table[playing_atten[3]]);
+    set_led(3, playing_atten[3]);
   }
 }
 
