@@ -61,6 +61,7 @@ void send_attenuation(uint8_t voice, uint8_t atten)
   send_byte(0x90U | (voice << 5) | atten);
 }
 
+static const uint8_t fade_table[16] PROGMEM = {255, 179, 125, 88, 61, 43, 30, 21, 15, 10, 7, 5, 4, 2, 1, 0};
 uint8_t playing_atten[4] = { 15, 15, 15, 15 };
 
 void note(uint8_t note)
@@ -85,14 +86,20 @@ void noise(uint8_t n, uint8_t initial_attenuation)
   send_attenuation(3, initial_attenuation);
 }
 
+volatile uint8_t OCR0A_buf = 0, OCR0B_buf = 0;
 void decay()
 {
-  static volatile uint8_t *blinky_reg[3] = { &OCR0A, &OCR1A, &OCR1D };
-  for(uint8_t i = 0; i < 3; ++i) {
-    if (playing_atten[i] < 15) {
-      send_attenuation(i, ++playing_atten[i]);
-      *blinky_reg[i] = 0xff >> playing_atten[i];
-    }
+  if (playing_atten[0] < 15) {
+    send_attenuation(0, ++playing_atten[0]);
+    OCR0A_buf = pgm_read_byte(&fade_table[playing_atten[0]]);
+  }
+  if (playing_atten[1] < 15) {
+    send_attenuation(1, ++playing_atten[1]);
+    OCR1A = pgm_read_byte(&fade_table[playing_atten[1]]);
+  }
+  if (playing_atten[2] < 15) {
+    send_attenuation(2, ++playing_atten[2]);
+    OCR0B_buf = pgm_read_byte(&fade_table[playing_atten[2]]);
   }
 }
 
@@ -100,7 +107,7 @@ void decay_noise()
 {
   if (playing_atten[3] < 15) {
     send_attenuation(3, ++playing_atten[3]);
-    OCR1B = 0xff >> playing_atten[3];
+    OCR1B = pgm_read_byte(&fade_table[playing_atten[3]]);
   }
 }
 
@@ -110,30 +117,33 @@ void silence()
     send_attenuation(i, 15);
 }
 
-// LED 3 off
-ISR(TIMER1_COMPD_vect)
-{
-  PORTB &= 0b11111011;
-}
-
-// LED 3 on
-ISR(TIMER1_OVF_vect)
-{
-  PORTB |= 0b00000100;
-}
-
 // LED 1 off
 ISR(TIMER0_COMPA_vect)
 {
   PORTB &= 0b11111110;
 }
 
+// LED 3 off
+ISR(TIMER0_COMPB_vect)
+{
+  PORTB &= 0b11111011;
+}
+
 volatile uint8_t g_Tick = 0;
 
-// LED 1 on, also, music heartbeat (@ 122 Hz)
 ISR(TIMER0_OVF_vect)
 {
-  PORTB |= 0b00000001;
+  // LED 1 on, maybe
+  OCR0A = OCR0A_buf;
+  if (OCR0A_buf > 0)
+    PORTB |= 0b001;
+
+  // LED 3
+  OCR0B = OCR0B_buf;
+  if (OCR0B_buf > 0)
+    PORTB |= 0b100;
+
+  // music heartbeat
   g_Tick += 1;
 }
 
@@ -153,18 +163,15 @@ void init_interrupts()
 
   // two of them (LEDs 2 and 4) are easy: they're on OC1A and OC1B pins, so we can use fast PWM mode
   TCCR1A = (1 << COM1A1) | (1 << COM1B1) | (1 << PWM1A) | (1 << PWM1B);
-
-  // we can't use the third PWM channel (because its pin is shared with CLKO)
-  // so we'll do software PWM for LED 3 with the compare-match D and overflow interrupts
-  TIMSK = (1 << OCIE1D) | (1 << TOIE1);
-
   // set prescaler 1/64: 2MHz / 256 / 64 = 122Hz, a perfectly cromulent refresh rate
   TCCR1B = (1 << CS12) | (1 << CS11) | (1 << CS10);
 
-  // and let's do software PWM with timer 0 too
+  // we can't use the third PWM channel (because its pin is shared with CLKO)
+  // and there is no fourth PWM channel anyway
+  // so we'll use timer0 for LEDs 1 and 3
   TCCR0A = 0;                            // normal mode, 8-bit
   TCCR0B = (1 << CS01) | (1 << CS00);    // 1/64 prescaler
-  TIMSK |= (1 << OCIE0A) | (1 << TOIE0); // enable COMPA and overflow vectors
+  TIMSK |= (1 << OCIE0A) | (1 << OCIE0B) | (1 << TOIE0); // enable COMPA, COMPB, and overflow vectors
 }
 
 void play_song()
