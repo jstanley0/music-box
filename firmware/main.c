@@ -1,4 +1,4 @@
-// attinyX4 / TI SN76489 music box
+// attiny861 / TI SN76489 music box
 // (c) 2021 by Jeremy Stanley
 
 // port assignments (AVR -> TI SN76489):
