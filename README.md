@@ -1,6 +1,8 @@
 # music-box
 Chiptune music player featuring SN76489 and ATTiny861
 
+![music-box in action](https://user-images.githubusercontent.com/713453/113305152-fa427400-92bf-11eb-971c-c1e4a8a880f0.mov)
+
 ## Overview
 This project grew out of a Wikipedia surfing session. In reading about the computers of my childhood,
 I came across an article about the TI SN76489 sound chip, used by two of the machines I used as a kid
