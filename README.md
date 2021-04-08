@@ -1,5 +1,5 @@
 # music-box
-Chiptune music player featuring SN76489 and ATTiny861
+Chiptune music player featuring SN76489 and ATtiny861/ATtiny84
 
 ![music-box in action](https://user-images.githubusercontent.com/713453/113305152-fa427400-92bf-11eb-971c-c1e4a8a880f0.mov)
 
@@ -23,6 +23,10 @@ linear rate after it is struck. Much like an actual music box!
 ## Loading music
 util/process_midi_file.cpp will take a MIDI file and output a set of arrays for songs.c. It makes
 use of [light-midi-parser](https://github.com/imhcyx/light-midi-parser) as a submodule.
+
+## ATtiny84
+This project can also be built for the ATtiny84, via `make -e DEVICE=attiny84`.
+With this target there will be just one blinking light, rather than one per channel. See main.c for wiring differences.
 
 ## See also
 I've also created a more elaborate stereo two-chip player using the Raspberry Pi Pico, [pico-player](https://github.com/jstanley0/pico-player).

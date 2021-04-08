@@ -1,7 +1,7 @@
 // attiny861 / TI SN76489 music box
 // (c) 2021 by Jeremy Stanley
 
-// port assignments (AVR -> TI SN76489):
+// port assignments (ATtiny861 -> TI SN76489):
 // PA0..PA7 -> D7..D0
 // PB4 -> /WE
 // PB5 -> CLOCK (via CKOUT fuse)
@@ -10,6 +10,14 @@
 // PB0..3 -> blinkenlights
 // PB6 -> tac switch
 
+// alternatively this can be compiled for ATtiny84
+// using `make -e DEVICE=attiny84`
+// which uses the following port assignments:
+// PA0..PA7 -> D7..D0
+// PB1 -> /WE
+// PB2 -> CLOCK
+// PB0 -> blinkenlight (just one)
+
 #include <avr/io.h>
 #include <avr/pgmspace.h>
 #include <avr/sleep.h>
@@ -17,6 +25,12 @@
 #include <util/delay.h>
 
 #include "songs.h"
+
+#ifdef __AVR_ATtiny84__
+#define WE_BIT PORTB1
+#else
+#define WE_BIT PORTB4
+#endif
 
 // hi-hat, ride cymbal, etc. don't play at full volume
 #define ATTENUATED_PERCUSSION_LEVEL 4
@@ -33,16 +47,21 @@ void init_clock()
 void init_io()
 {
   DDRA  = 0xff;
+#ifdef __AVR_ATtiny84__
+  DDRB  = 0b00000111;
+  PORTB = (1 << WE_BIT);
+#else
   DDRB  = 0b00111111;
-  PORTB = (1 << PORTB6) | (1 << PORTB4);
+  PORTB = (1 << PORTB6) | (1 << WE_BIT);
+#endif
 }
 
 void send_byte(uint8_t byte)
 {
   PORTA = byte;
-  PORTB &= ~(1 << PORTB4);
+  PORTB &= ~(1 << WE_BIT);
   _delay_us(16);  // 32 clock cycles at 2MHz
-  PORTB |= (1 << PORTB4);
+  PORTB |= (1 << WE_BIT);
 }
 
 void send_frequency(uint8_t voice, uint16_t freq)
@@ -61,8 +80,21 @@ void send_attenuation(uint8_t voice, uint8_t atten)
   send_byte(0x90U | (voice << 5) | atten);
 }
 
-static const uint8_t fade_table[16] PROGMEM = {254, 179, 125, 88, 61, 43, 30, 21, 15, 10, 7, 5, 4, 2, 1, 0};
 uint8_t playing_atten[4] = { 15, 15, 15, 15 };
+
+#ifdef __AVR_ATtiny84__
+volatile uint8_t OCR0A_buf = 0;
+
+void update_blinkenlight()
+{
+  uint8_t blinkenlight = 0;
+  for(uint8_t i = 0; i < 4; ++i) {
+    blinkenlight += (63 >> playing_atten[i]);
+  }
+  OCR0A_buf = blinkenlight;
+}
+#else
+static const uint8_t fade_table[16] PROGMEM = {254, 179, 125, 88, 61, 43, 30, 21, 15, 10, 7, 5, 4, 2, 1, 0};
 
 volatile uint8_t OCR0A_buf = 0, OCR0B_buf = 0;
 void set_led(uint8_t voice, uint8_t atten)
@@ -70,6 +102,7 @@ void set_led(uint8_t voice, uint8_t atten)
     static volatile uint8_t *intensity_reg[4] = { &OCR0A_buf, &OCR1A, &OCR0B_buf, &OCR1B };
     *intensity_reg[voice] = pgm_read_byte(&fade_table[playing_atten[voice]]);
 }
+#endif
 
 void note(uint8_t note)
 {
@@ -84,7 +117,9 @@ void note(uint8_t note)
   playing_atten[v] = 0;
   send_frequency(v, pgm_read_word(&note_table[note]));
   send_attenuation(v, 0);
+#ifndef __AVR_ATtiny84__
   set_led(v, 0);
+#endif
 }
 
 void noise(uint8_t n, uint8_t initial_attenuation)
@@ -92,7 +127,9 @@ void noise(uint8_t n, uint8_t initial_attenuation)
   playing_atten[3] = initial_attenuation;
   send_noise(n);
   send_attenuation(3, initial_attenuation);
+#ifndef __AVR_ATtiny84__
   set_led(3, 0);
+#endif
 }
 
 void decay()
@@ -100,7 +137,9 @@ void decay()
   for(uint8_t i = 0; i < 3; ++i) {
     if (playing_atten[i] < 15) {
       send_attenuation(i, ++playing_atten[i]);
+#ifndef __AVR_ATtiny84__
       set_led(i, playing_atten[i]);
+#endif
     }
   }
 }
@@ -109,7 +148,9 @@ void decay_noise()
 {
   if (playing_atten[3] < 15) {
     send_attenuation(3, ++playing_atten[3]);
+#ifndef __AVR_ATtiny84__
     set_led(3, playing_atten[3]);
+#endif
   }
 }
 
@@ -118,6 +159,29 @@ void silence()
   for(int i = 0; i < 4; ++i)
     send_attenuation(i, 15);
 }
+
+volatile uint8_t g_Tick = 0;
+
+#ifdef __AVR_ATtiny84__
+
+ISR(TIM0_COMPA_vect)
+{
+  // LED off
+  PORTB &= 0b11111110;
+}
+
+ISR(TIM0_OVF_vect)
+{
+  // LED on, maybe
+  OCR0A = OCR0A_buf;
+  if (OCR0A_buf > 0)
+    PORTB |= 1;
+
+  // music heartbeat
+  g_Tick += 1;
+}
+
+#else
 
 // LED 1 off
 ISR(TIMER0_COMPA_vect)
@@ -130,8 +194,6 @@ ISR(TIMER0_COMPB_vect)
 {
   PORTB &= 0b11111011;
 }
-
-volatile uint8_t g_Tick = 0;
 
 ISR(TIMER0_OVF_vect)
 {
@@ -149,6 +211,8 @@ ISR(TIMER0_OVF_vect)
   g_Tick += 1;
 }
 
+#endif
+
 void sleep_one_tick()
 {
   while (g_Tick == 0) {
@@ -161,6 +225,12 @@ void sleep_one_tick()
 
 void init_interrupts()
 {
+#ifdef __AVR_ATtiny84__
+  // one LED with software PWM
+  TCCR0A = 0;                            // normal mode, 8-bit
+  TCCR0B = (1 << CS01) | (1 << CS00);    // 1/64 prescaler
+  TIMSK0 = (1 << OCIE0A) | (1 << TOIE0); // enable COMPA and OVF vectors
+#else
   // this is gonna be a bit hacky because THERE ARE FOUR LIGHTS.
 
   // two of them (LEDs 2 and 4) are easy: they're on OC1A and OC1B pins, so we can use fast PWM mode
@@ -174,6 +244,7 @@ void init_interrupts()
   TCCR0A = 0;                            // normal mode, 8-bit
   TCCR0B = (1 << CS01) | (1 << CS00);    // 1/64 prescaler
   TIMSK |= (1 << OCIE0A) | (1 << OCIE0B) | (1 << TOIE0); // enable COMPA, COMPB, and overflow vectors
+#endif
 }
 
 void play_song()
@@ -184,10 +255,18 @@ void play_song()
   uint8_t noise_cycles = 0;
   int8_t noise_target = 0;
 
+#ifdef __AVR_ATtiny84__
+  for(;;)
+#else
   // stop playing if the button is pressed
   while(PINB & (1 << PB6))
+#endif
   {
     sleep_one_tick();
+
+#ifdef __AVR_ATtiny84__
+    update_blinkenlight();
+#endif
 
     if (++decay_cycles == 6) {
       decay_cycles = 0;
@@ -238,13 +317,8 @@ int main(void)
   init_interrupts();
   sei();
 
-  play_song();
-
-  silence();
-  TCCR1B = 0;
-  TCCR0B = 0;
-  PORTB &= 0xF0;
-  set_sleep_mode(SLEEP_MODE_PWR_DOWN);
-  sleep_enable();
-  sleep_cpu();
+  // TODO play multiple songs, and use the button to skip to the next one
+  for(;;) {
+    play_song();
+  }
 }
