@@ -192,10 +192,13 @@ public:
 };
 
 int main(int argc, char* argv[]) {
-  if (argc != 2) {
-    std::cerr << "Usage: process_midi_file file.mid" << std::endl;
+  if (argc < 2) {
+    std::cerr << "Usage: process_midi_file file.mid [transpose_semitones]" << std::endl;
     return 1;
   }
+  int transpose = 0;
+  if (argc >= 3)
+    transpose = atoi(argv[2]);
 
   midi_file *midi = midi_open_file(argv[1]);
   if (!midi) {
@@ -233,7 +236,7 @@ int main(int argc, char* argv[]) {
       }
       break;
     case midi_noteon:
-      encoder.log_note(node->chan, node->param1, node->param2);
+      encoder.log_note(node->chan, node->param1 + transpose, node->param2);
       break;
     }
   }
