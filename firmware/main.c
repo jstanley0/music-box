@@ -25,6 +25,8 @@
 #include <util/delay.h>
 
 #include "songs.h"
+const uint8_t *const songs[] PROGMEM = { st_elsewhere, lament, macgyver, brooklet, quantum_leap, nervous, hogans_heroes, charlie_brown };
+const uint8_t NUM_SONGS = sizeof(songs) / sizeof(songs[0]);
 
 #ifdef __AVR_ATtiny84__
 #define WE_BIT PORTB1
@@ -247,25 +249,26 @@ void init_interrupts()
 #endif
 }
 
-void play_song()
+void play_song(uint8_t song_num)
 {
+  const uint8_t *PROGMEM song_data = (uint8_t *)pgm_read_word(&songs[song_num]);
   uint16_t song_pos = 0;
   uint8_t wait_cycles = 50;
   uint8_t decay_cycles = 0;
   uint8_t noise_cycles = 0;
   int8_t noise_target = 0;
+  int8_t fade_out = 0;
 
-#ifdef __AVR_ATtiny84__
   for(;;)
-#else
-  // stop playing if the button is pressed
-  while(PINB & (1 << PB6))
-#endif
   {
     sleep_one_tick();
 
 #ifdef __AVR_ATtiny84__
     update_blinkenlight();
+#else
+    if (0 == (PINB & (1 << PB6))) {
+        fade_out = 100;
+    }
 #endif
 
     if (++decay_cycles == 6) {
@@ -275,6 +278,13 @@ void play_song()
     if (++noise_cycles == noise_target) {
       noise_cycles = 0;
       decay_noise();
+    }
+
+    if (fade_out > 0) {
+        if (--fade_out == 0)
+            break;
+        else
+            continue;
     }
 
     if (wait_cycles > 0) {
@@ -302,7 +312,7 @@ void play_song()
         noise(song_cmd & 0x07, noise_atten ? ATTENUATED_PERCUSSION_LEVEL : 0);
         break;
       case 0xC0: // end song
-        return;
+        fade_out = 100;
       }
       ++song_pos;
     }
@@ -317,8 +327,10 @@ int main(void)
   init_interrupts();
   sei();
 
-  // TODO play multiple songs, and use the button to skip to the next one
+  uint8_t song_num = 0;
   for(;;) {
-    play_song();
+    play_song(song_num);
+    if (++song_num >= NUM_SONGS)
+        song_num = 0;
   }
 }
